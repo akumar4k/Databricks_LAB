@@ -1,4 +1,14 @@
 ############################
+# Data source to get existing workspace (when create_workspace=false)
+############################
+
+data "azurerm_databricks_workspace" "existing" {
+  count               = var.create_workspace ? 0 : 1
+  name                = var.databricks_workspace_name
+  resource_group_name = var.azure_resource_group_name
+}
+
+############################
 # Azure Resource Group for Databricks
 ############################
 
