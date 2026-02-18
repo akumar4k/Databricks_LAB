@@ -16,7 +16,11 @@ terraform {
 }
 
 provider "databricks" {
-  host  = var.databricks_host
+  # Azure Databricks workspace URL (e.g., https://adb-xxxxxxxx.azuredatabricks.net)
+  host = var.databricks_host
+  
+  # Authentication: Use PAT token or Azure service principal
+  # For Azure service principal, use: azure_client_id, azure_client_secret, azure_tenant_id
   token = var.databricks_token
 }
 
