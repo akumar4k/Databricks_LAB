@@ -1,0 +1,115 @@
+trigger:
+  branches:
+    include:
+      - main
+
+stages:
+  - stage: CI
+    displayName: "Terraform Validate & Plan"
+    jobs:
+      - job: terraform_ci
+        displayName: "CI - Terraform"
+        pool:
+          vmImage: "ubuntu-latest"
+
+        steps:
+          - checkout: self
+
+          - task: Bash@3
+            displayName: "Install Terraform"
+            inputs:
+              targetType: "inline"
+              script: |
+                set -e
+                sudo apt-get update -y
+                sudo apt-get install -y wget unzip
+                TF_VERSION="1.8.4"
+                wget https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip
+                unzip terraform_${TF_VERSION}_linux_amd64.zip
+                sudo mv terraform /usr/local/bin/
+                terraform version
+
+          - task: Bash@3
+            displayName: "Terraform init"
+            inputs:
+              targetType: "inline"
+              workingDirectory: "infra"
+              script: |
+                set -e
+                terraform init
+
+          - task: Bash@3
+            displayName: "Terraform fmt, validate & plan"
+            inputs:
+              targetType: "inline"
+              workingDirectory: "infra"
+              script: |
+                set -e
+                terraform fmt -check
+                terraform validate
+                terraform plan \
+                  -var="databricks_host=$(DATABRICKS_HOST)" \
+                  -var="databricks_token=$(DATABRICKS_TOKEN)" \
+                  -var="uc_catalog=$(UC_CATALOG)" \
+                  -var="uc_schema=$(UC_SCHEMA)" \
+                  -out=tfplan
+            env:
+              TF_IN_AUTOMATION: "true"
+
+          - publish: infra/tfplan
+            artifact: tfplan
+            displayName: "Publish Terraform plan artifact"
+
+  - stage: CD
+    displayName: "Terraform Apply"
+    dependsOn: CI
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+
+    jobs:
+      - deployment: terraform_apply
+        displayName: "CD - Terraform Apply"
+        environment: "databricks-dev"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - task: Bash@3
+                  displayName: "Install Terraform"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      set -e
+                      sudo apt-get update -y
+                      sudo apt-get install -y wget unzip
+                      TF_VERSION="1.8.4"
+                      wget https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip
+                      unzip terraform_${TF_VERSION}_linux_amd64.zip
+                      sudo mv terraform /usr/local/bin/
+                      terraform version
+
+                - task: Bash@3
+                  displayName: "Terraform init"
+                  inputs:
+                    targetType: "inline"
+                    workingDirectory: "infra"
+                    script: |
+                      set -e
+                      terraform init
+
+                - task: Bash@3
+                  displayName: "Terraform apply"
+                  inputs:
+                    targetType: "inline"
+                    workingDirectory: "infra"
+                    script: |
+                      set -e
+                      terraform apply -auto-approve \
+                        -var="databricks_host=$(DATABRICKS_HOST)" \
+                        -var="databricks_token=$(DATABRICKS_TOKEN)" \
+                        -var="uc_catalog=$(UC_CATALOG)" \
+                        -var="uc_schema=$(UC_SCHEMA)"
+                  env:
+                    TF_IN_AUTOMATION: "true"
+
