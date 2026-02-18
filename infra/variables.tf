@@ -1,6 +1,13 @@
+variable "create_workspace" {
+  description = "Whether to create a new Azure Databricks workspace (true) or use existing (false)"
+  type        = bool
+  default     = true
+}
+
 variable "databricks_host" {
-  description = "Azure Databricks workspace URL (e.g. https://adb-xxx.azuredatabricks.net)"
+  description = "Azure Databricks workspace URL (e.g. https://adb-xxx.azuredatabricks.net). Required if create_workspace = false. If create_workspace = true, can be placeholder initially, then update with outputted workspace_url after first apply"
   type        = string
+  default     = ""
 }
 
 variable "databricks_token" {
@@ -23,6 +30,56 @@ variable "data_group" {
   description = "Unity Catalog principal (Azure AD group or user) to grant access"
   type        = string
   default     = "data_engineers"
+}
+
+# Azure Infrastructure Variables (required if create_workspace = true)
+variable "azure_resource_group_name" {
+  description = "Azure Resource Group name for Databricks workspace"
+  type        = string
+  default     = "rg-databricks-lab"
+}
+
+variable "azure_location" {
+  description = "Azure region for Databricks workspace (e.g., eastus, westeurope)"
+  type        = string
+  default     = "eastus"
+}
+
+variable "databricks_workspace_name" {
+  description = "Name of the Azure Databricks workspace"
+  type        = string
+  default     = "databricks-lab-workspace"
+}
+
+variable "databricks_sku" {
+  description = "Azure Databricks SKU (premium or standard)"
+  type        = string
+  default     = "premium"
+}
+
+variable "azure_subscription_id" {
+  description = "Azure Subscription ID"
+  type        = string
+  default     = ""
+}
+
+variable "azure_tenant_id" {
+  description = "Azure Tenant ID (for service principal authentication)"
+  type        = string
+  default     = ""
+}
+
+variable "azure_client_id" {
+  description = "Azure Client ID (for service principal authentication)"
+  type        = string
+  default     = ""
+}
+
+variable "azure_client_secret" {
+  description = "Azure Client Secret (for service principal authentication)"
+  type        = string
+  sensitive   = true
+  default     = ""
 }
 
 # Optional: Azure Key Vault integration variables
