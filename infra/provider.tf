@@ -29,11 +29,13 @@ provider "azurerm" {
 }
 
 provider "databricks" {
-  # Workspace URL:
-  # - If create_workspace=false: Use var.databricks_host (existing workspace)
-  # - If create_workspace=true: Use var.databricks_host initially (can be placeholder),
-  #   then after first apply, use the outputted workspace_url from azurerm_databricks_workspace
-  host = var.databricks_host != "" ? var.databricks_host : (var.create_workspace ? "https://placeholder.azuredatabricks.net" : "")
+  # Workspace URL resolution:
+  # - If create_workspace=true: Uses var.databricks_host (can be placeholder initially)
+  # - If create_workspace=false: Uses data source or var.databricks_host
+  # Note: When create_workspace=true, you'll need two-stage apply:
+  #   Stage 1: Create workspace with placeholder URL
+  #   Stage 2: Update databricks_host with actual workspace URL and apply again
+  host = local.databricks_workspace_url
   
   # Authentication: Use PAT token or Azure service principal
   # For Azure service principal, use: azure_client_id, azure_client_secret, azure_tenant_id
