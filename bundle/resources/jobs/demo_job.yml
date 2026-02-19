@@ -16,6 +16,8 @@ resources:
             notebook_path: resources/notebooks/demo_notebook
             base_parameters:
               input: "from-dab-job"
+              catalog: "${var.uc_catalog}"
+              schema: "${var.uc_schema}"
           job_cluster_key: lab_cluster
 
       job_clusters:

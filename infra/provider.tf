@@ -22,6 +22,7 @@ terraform {
 # Azure Provider - for creating Azure Databricks workspace
 provider "azurerm" {
   features {}
+  subscription_id = var.azure_subscription_id != "" ? var.azure_subscription_id : null
   # Azure credentials can be set via:
   # - Environment variables: ARM_CLIENT_ID, ARM_CLIENT_SECRET, ARM_TENANT_ID, ARM_SUBSCRIPTION_ID
   # - Azure CLI: az login
@@ -29,12 +30,7 @@ provider "azurerm" {
 }
 
 provider "databricks" {
-  # Workspace URL resolution:
-  # - If create_workspace=true: Uses var.databricks_host (can be placeholder initially)
-  # - If create_workspace=false: Uses data source or var.databricks_host
-  # Note: When create_workspace=true, you'll need two-stage apply:
-  #   Stage 1: Create workspace with placeholder URL
-  #   Stage 2: Update databricks_host with actual workspace URL and apply again
+ 
   host = local.databricks_workspace_url
   
   # Authentication: Use PAT token or Azure service principal
