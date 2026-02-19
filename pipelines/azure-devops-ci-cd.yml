@@ -171,6 +171,7 @@ stages:
 
                 - task: Bash@3
                   displayName: "DAB run (optional - triggers job)"
+                  continueOnError: true
                   inputs:
                     targetType: "inline"
                     workingDirectory: bundle
