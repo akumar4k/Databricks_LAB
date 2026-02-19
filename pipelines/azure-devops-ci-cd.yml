@@ -1,9 +1,43 @@
+# =============================================================================
+# Azure DevOps CI/CD Pipeline - Terraform + Databricks Asset Bundle (DAB)
+# =============================================================================
+# Terraform: Creates Azure Databricks workspace, cluster, job, notebook, Unity Catalog
+# DAB: Deploys notebooks and jobs via Databricks Asset Bundle
+#
+# Required Pipeline Variables (Library/Variable Group):
+#   DATABRICKS_HOST       - Workspace URL (or leave empty for two-stage when creating workspace)
+#   DATABRICKS_TOKEN      - PAT (secret)
+#   UC_CATALOG            - Unity Catalog catalog name
+#   UC_SCHEMA             - Unity Catalog schema name
+#   AZURE_SUBSCRIPTION_ID - Azure Subscription ID
+#   AZURE_LOCATION        - Azure region (e.g. eastus, westeurope)
+#   ARM_CLIENT_ID         - Service principal (for Azure)
+#   ARM_CLIENT_SECRET     - Service principal secret
+#   ARM_TENANT_ID         - Azure tenant ID
+# Optional: AZURE_RESOURCE_GROUP_NAME, DATABRICKS_WORKSPACE_NAME, CREATE_WORKSPACE
+# =============================================================================
+
 trigger:
   branches:
     include:
       - main
 
+variables:
+  # Defaults - override via Variable Group "databricks-lab" or Pipeline Variables
+  - name: AZURE_RESOURCE_GROUP_NAME
+    value: rg-databricks-lab
+  - name: DATABRICKS_WORKSPACE_NAME
+    value: databricks-lab-workspace
+  - name: CREATE_WORKSPACE
+    value: "true"
+  - name: DATA_GROUP
+    value: data_engineers
+  # - group: databricks-lab  # Uncomment and create Variable Group with: DATABRICKS_HOST, DATABRICKS_TOKEN, UC_CATALOG, UC_SCHEMA, AZURE_SUBSCRIPTION_ID, AZURE_LOCATION, ARM_*
+
 stages:
+  # ---------------------------------------------------------------------------
+  # CI: Terraform Validate & Plan
+  # ---------------------------------------------------------------------------
   - stage: CI
     displayName: "Terraform Validate & Plan"
     jobs:
@@ -24,7 +58,7 @@ stages:
                 sudo apt-get update -y
                 sudo apt-get install -y wget unzip
                 TF_VERSION="1.8.4"
-                wget https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip
+                wget -q https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip
                 unzip terraform_${TF_VERSION}_linux_amd64.zip
                 sudo mv terraform /usr/local/bin/
                 terraform version
@@ -47,19 +81,62 @@ stages:
                 set -e
                 terraform fmt -check
                 terraform validate
-                terraform plan \
-                  -var="databricks_host=$(DATABRICKS_HOST)" \
-                  -var="databricks_token=$(DATABRICKS_TOKEN)" \
-                  -var="uc_catalog=$(UC_CATALOG)" \
-                  -var="uc_schema=$(UC_SCHEMA)" \
-                  -out=tfplan
+                # Use -var-file if terraform.tfvars exists, else pass vars individually
+                if [ -f terraform.tfvars ]; then
+                  terraform plan \
+                    -var="databricks_token=$(DATABRICKS_TOKEN)" \
+                    -var="databricks_host=$(DATABRICKS_HOST)" \
+                    -var="azure_subscription_id=$(AZURE_SUBSCRIPTION_ID)" \
+                    -var="azure_location=$(AZURE_LOCATION)" \
+                    -var="azure_resource_group_name=$(AZURE_RESOURCE_GROUP_NAME)" \
+                    -var="databricks_workspace_name=$(DATABRICKS_WORKSPACE_NAME)" \
+                    -var="create_workspace=$(CREATE_WORKSPACE)" \
+                    -var="uc_catalog=$(UC_CATALOG)" \
+                    -var="uc_schema=$(UC_SCHEMA)" \
+                    -var="data_group=$(DATA_GROUP)" \
+                    -var-file=terraform.tfvars \
+                    -out=tfplan 2>/dev/null || terraform plan \
+                    -var="databricks_token=$(DATABRICKS_TOKEN)" \
+                    -var="databricks_host=$(DATABRICKS_HOST)" \
+                    -var="azure_subscription_id=$(AZURE_SUBSCRIPTION_ID)" \
+                    -var="azure_location=$(AZURE_LOCATION)" \
+                    -var="uc_catalog=$(UC_CATALOG)" \
+                    -var="uc_schema=$(UC_SCHEMA)" \
+                    -out=tfplan
+                else
+                  terraform plan \
+                    -var="databricks_token=$(DATABRICKS_TOKEN)" \
+                    -var="databricks_host=$(DATABRICKS_HOST)" \
+                    -var="azure_subscription_id=$(AZURE_SUBSCRIPTION_ID)" \
+                    -var="azure_location=$(AZURE_LOCATION)" \
+                    -var="azure_resource_group_name=$(AZURE_RESOURCE_GROUP_NAME)" \
+                    -var="databricks_workspace_name=$(DATABRICKS_WORKSPACE_NAME)" \
+                    -var="create_workspace=$(CREATE_WORKSPACE)" \
+                    -var="uc_catalog=$(UC_CATALOG)" \
+                    -var="uc_schema=$(UC_SCHEMA)" \
+                    -var="data_group=$(DATA_GROUP)" \
+                    -out=tfplan
+                fi
             env:
               TF_IN_AUTOMATION: "true"
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              AZURE_SUBSCRIPTION_ID: $(AZURE_SUBSCRIPTION_ID)
+              AZURE_LOCATION: $(AZURE_LOCATION)
+              AZURE_RESOURCE_GROUP_NAME: $(AZURE_RESOURCE_GROUP_NAME)
+              DATABRICKS_WORKSPACE_NAME: $(DATABRICKS_WORKSPACE_NAME)
+              CREATE_WORKSPACE: $(CREATE_WORKSPACE)
+              UC_CATALOG: $(UC_CATALOG)
+              UC_SCHEMA: $(UC_SCHEMA)
+              DATA_GROUP: $(DATA_GROUP)
 
           - publish: infra/tfplan
             artifact: tfplan
             displayName: "Publish Terraform plan artifact"
 
+  # ---------------------------------------------------------------------------
+  # CI: Databricks Asset Bundle (DAB) Validate
+  # ---------------------------------------------------------------------------
   - stage: CI_DAB
     displayName: "DAB Validate"
     dependsOn: []
@@ -73,7 +150,7 @@ stages:
           - checkout: self
 
           - task: Bash@3
-            displayName: "Install Databricks CLI"
+            displayName: "Install Databricks CLI (DAB)"
             inputs:
               targetType: "inline"
               script: |
@@ -93,6 +170,9 @@ stages:
               DATABRICKS_HOST: $(DATABRICKS_HOST)
               DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
 
+  # ---------------------------------------------------------------------------
+  # CD: Terraform Apply & DAB Deploy
+  # ---------------------------------------------------------------------------
   - stage: CD
     displayName: "Terraform Apply & DAB Deploy"
     dependsOn:
@@ -102,7 +182,7 @@ stages:
 
     jobs:
       - deployment: terraform_apply
-        displayName: "CD - Terraform Apply"
+        displayName: "CD - Terraform Apply & DAB Deploy"
         environment: "databricks-dev"
         strategy:
           runOnce:
@@ -119,7 +199,7 @@ stages:
                       sudo apt-get update -y
                       sudo apt-get install -y wget unzip
                       TF_VERSION="1.8.4"
-                      wget https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip
+                      wget -q https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip
                       unzip terraform_${TF_VERSION}_linux_amd64.zip
                       sudo mv terraform /usr/local/bin/
                       terraform version
@@ -133,23 +213,84 @@ stages:
                       set -e
                       terraform init
 
+                # Two-stage apply when creating new workspace: first create Azure resources, then Databricks
                 - task: Bash@3
-                  displayName: "Terraform apply"
+                  displayName: "Terraform Apply - Stage 1 (Azure Workspace if create_workspace=true)"
                   inputs:
                     targetType: "inline"
                     workingDirectory: "infra"
                     script: |
                       set -e
-                      terraform apply -auto-approve \
-                        -var="databricks_host=$(DATABRICKS_HOST)" \
-                        -var="databricks_token=$(DATABRICKS_TOKEN)" \
-                        -var="uc_catalog=$(UC_CATALOG)" \
-                        -var="uc_schema=$(UC_SCHEMA)"
-                  env:
-                    TF_IN_AUTOMATION: "true"
+                      export TF_IN_AUTOMATION=true
+                      export ARM_CLIENT_ID="$(ARM_CLIENT_ID)"
+                      export ARM_CLIENT_SECRET="$(ARM_CLIENT_SECRET)"
+                      export ARM_TENANT_ID="$(ARM_TENANT_ID)"
+                      export ARM_SUBSCRIPTION_ID="$(AZURE_SUBSCRIPTION_ID)"
+                      if [ "$(CREATE_WORKSPACE)" = "true" ] && [ -z "$(DATABRICKS_HOST)" ]; then
+                        echo "Creating Azure Databricks workspace first..."
+                        terraform apply -auto-approve \
+                          -target=azurerm_resource_group.databricks \
+                          -target=azurerm_databricks_workspace.this \
+                          -var="databricks_token=$(DATABRICKS_TOKEN)" \
+                          -var="databricks_host=https://placeholder.azuredatabricks.net" \
+                          -var="azure_subscription_id=$(AZURE_SUBSCRIPTION_ID)" \
+                          -var="azure_location=$(AZURE_LOCATION)" \
+                          -var="azure_resource_group_name=$(AZURE_RESOURCE_GROUP_NAME)" \
+                          -var="databricks_workspace_name=$(DATABRICKS_WORKSPACE_NAME)" \
+                          -var="create_workspace=true" \
+                          -var="uc_catalog=$(UC_CATALOG)" \
+                          -var="uc_schema=$(UC_SCHEMA)" \
+                          -var="data_group=$(DATA_GROUP)"
+                        echo "##vso[task.setvariable variable=WORKSPACE_CREATED]true"
+                      else
+                        echo "Skipping Stage 1 - using existing workspace or DATABRICKS_HOST provided"
+                        echo "##vso[task.setvariable variable=WORKSPACE_CREATED]false"
+                      fi
 
                 - task: Bash@3
-                  displayName: "Install Databricks CLI"
+                  displayName: "Get Databricks workspace URL"
+                  condition: eq(variables['WORKSPACE_CREATED'], 'true')
+                  inputs:
+                    targetType: "inline"
+                    workingDirectory: "infra"
+                    script: |
+                      set -e
+                      WORKSPACE_URL=$(terraform output -raw databricks_workspace_url)
+                      echo "##vso[task.setvariable variable=NEW_DATABRICKS_HOST;issecret=false]$WORKSPACE_URL"
+                      echo "Workspace URL: $WORKSPACE_URL"
+
+                - task: Bash@3
+                  displayName: "Terraform Apply - Full"
+                  inputs:
+                    targetType: "inline"
+                    workingDirectory: "infra"
+                    script: |
+                      set -e
+                      export TF_IN_AUTOMATION=true
+                      export ARM_CLIENT_ID="$(ARM_CLIENT_ID)"
+                      export ARM_CLIENT_SECRET="$(ARM_CLIENT_SECRET)"
+                      export ARM_TENANT_ID="$(ARM_TENANT_ID)"
+                      export ARM_SUBSCRIPTION_ID="$(AZURE_SUBSCRIPTION_ID)"
+                      # Use NEW_DATABRICKS_HOST if we just created workspace, else pipeline var
+                      if [ -n "$(NEW_DATABRICKS_HOST)" ]; then
+                        DATABRICKS_HOST="$(NEW_DATABRICKS_HOST)"
+                      else
+                        DATABRICKS_HOST="$(DATABRICKS_HOST)"
+                      fi
+                      terraform apply -auto-approve \
+                        -var="databricks_token=$(DATABRICKS_TOKEN)" \
+                        -var="databricks_host=${DATABRICKS_HOST}" \
+                        -var="azure_subscription_id=$(AZURE_SUBSCRIPTION_ID)" \
+                        -var="azure_location=$(AZURE_LOCATION)" \
+                        -var="azure_resource_group_name=$(AZURE_RESOURCE_GROUP_NAME)" \
+                        -var="databricks_workspace_name=$(DATABRICKS_WORKSPACE_NAME)" \
+                        -var="create_workspace=$(CREATE_WORKSPACE)" \
+                        -var="uc_catalog=$(UC_CATALOG)" \
+                        -var="uc_schema=$(UC_SCHEMA)" \
+                        -var="data_group=$(DATA_GROUP)"
+
+                - task: Bash@3
+                  displayName: "Install Databricks CLI (DAB)"
                   inputs:
                     targetType: "inline"
                     script: |
@@ -164,10 +305,14 @@ stages:
                     workingDirectory: bundle
                     script: |
                       set -e
+                      # Use workspace URL from Terraform output if we created it
+                      if [ -n "$(NEW_DATABRICKS_HOST)" ]; then
+                        export DATABRICKS_HOST="$(NEW_DATABRICKS_HOST)"
+                      else
+                        export DATABRICKS_HOST="$(DATABRICKS_HOST)"
+                      fi
+                      export DATABRICKS_TOKEN="$(DATABRICKS_TOKEN)"
                       databricks bundle deploy -t dev
-                  env:
-                    DATABRICKS_HOST: $(DATABRICKS_HOST)
-                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
 
                 - task: Bash@3
                   displayName: "DAB run (optional - triggers job)"
@@ -177,8 +322,25 @@ stages:
                     workingDirectory: bundle
                     script: |
                       set -e
+                      if [ -n "$(NEW_DATABRICKS_HOST)" ]; then
+                        export DATABRICKS_HOST="$(NEW_DATABRICKS_HOST)"
+                      else
+                        export DATABRICKS_HOST="$(DATABRICKS_HOST)"
+                      fi
+                      export DATABRICKS_TOKEN="$(DATABRICKS_TOKEN)"
                       databricks bundle run devops-lab-demo-job -t dev --no-wait
-                  env:
-                    DATABRICKS_HOST: $(DATABRICKS_HOST)
-                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
-
+            env:
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              AZURE_SUBSCRIPTION_ID: $(AZURE_SUBSCRIPTION_ID)
+              AZURE_LOCATION: $(AZURE_LOCATION)
+              AZURE_RESOURCE_GROUP_NAME: $(AZURE_RESOURCE_GROUP_NAME)
+              DATABRICKS_WORKSPACE_NAME: $(DATABRICKS_WORKSPACE_NAME)
+              CREATE_WORKSPACE: $(CREATE_WORKSPACE)
+              UC_CATALOG: $(UC_CATALOG)
+              UC_SCHEMA: $(UC_SCHEMA)
+              DATA_GROUP: $(DATA_GROUP)
+              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
+              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
+              ARM_TENANT_ID: $(ARM_TENANT_ID)
+              NEW_DATABRICKS_HOST: $(NEW_DATABRICKS_HOST)

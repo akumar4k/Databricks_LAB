@@ -82,7 +82,9 @@ resource "databricks_job" "demo_job" {
     notebook_path = databricks_workspace_file.demo_notebook.path
 
     base_parameters = {
-      input = "from-terraform-job"
+      input   = "from-terraform-job"
+      catalog = var.uc_catalog
+      schema  = var.uc_schema
     }
   }
 
