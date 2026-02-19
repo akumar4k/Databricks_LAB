@@ -5,7 +5,7 @@ bundle:
   name: devops-lab-bundle
 
 include:
-  - resources/*.yml
+  - resources/jobs/*.yml
 
 sync:
   include:

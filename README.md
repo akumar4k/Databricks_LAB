@@ -2,6 +2,7 @@
 
 This repository contains a small lab for a Databricks DevOps Engineer role.
 
+- **Bundle** (`bundle/`): Databricks Asset Bundle (DAB) for deploying notebooks and jobs.
 - **Infra** (`infra/`): Terraform configuration that can:
   - **Create Azure Databricks workspace** (Azure infrastructure) - NEW!
   - **Create Databricks resources** within the workspace: cluster, notebook, job, Unity Catalog schema/table, and RBAC grants
