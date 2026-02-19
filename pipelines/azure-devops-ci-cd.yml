@@ -60,9 +60,44 @@ stages:
             artifact: tfplan
             displayName: "Publish Terraform plan artifact"
 
+  - stage: CI_DAB
+    displayName: "DAB Validate"
+    dependsOn: []
+    jobs:
+      - job: dab_validate
+        displayName: "CI - Databricks Asset Bundle Validate"
+        pool:
+          vmImage: "ubuntu-latest"
+
+        steps:
+          - checkout: self
+
+          - task: Bash@3
+            displayName: "Install Databricks CLI"
+            inputs:
+              targetType: "inline"
+              script: |
+                set -e
+                curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+                databricks --version
+
+          - task: Bash@3
+            displayName: "DAB validate"
+            inputs:
+              targetType: "inline"
+              workingDirectory: bundle
+              script: |
+                set -e
+                databricks bundle validate -t dev
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
   - stage: CD
-    displayName: "Terraform Apply"
-    dependsOn: CI
+    displayName: "Terraform Apply & DAB Deploy"
+    dependsOn:
+      - CI
+      - CI_DAB
     condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
 
     jobs:
@@ -112,4 +147,37 @@ stages:
                         -var="uc_schema=$(UC_SCHEMA)"
                   env:
                     TF_IN_AUTOMATION: "true"
+
+                - task: Bash@3
+                  displayName: "Install Databricks CLI"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      set -e
+                      curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+                      databricks --version
+
+                - task: Bash@3
+                  displayName: "DAB deploy"
+                  inputs:
+                    targetType: "inline"
+                    workingDirectory: bundle
+                    script: |
+                      set -e
+                      databricks bundle deploy -t dev
+                  env:
+                    DATABRICKS_HOST: $(DATABRICKS_HOST)
+                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+                - task: Bash@3
+                  displayName: "DAB run (optional - triggers job)"
+                  inputs:
+                    targetType: "inline"
+                    workingDirectory: bundle
+                    script: |
+                      set -e
+                      databricks bundle run devops-lab-demo-job -t dev --no-wait
+                  env:
+                    DATABRICKS_HOST: $(DATABRICKS_HOST)
+                    DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
 

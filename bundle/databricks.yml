@@ -1,0 +1,41 @@
+# Databricks Asset Bundle (DAB) configuration
+# See: https://docs.databricks.com/en/dev-tools/bundles/
+
+bundle:
+  name: devops-lab-bundle
+
+include:
+  - resources/*.yml
+
+sync:
+  include:
+    - resources/notebooks/**
+  exclude: []
+
+variables:
+  uc_catalog: main
+  uc_schema: devops_lab
+
+# Workspace host/token are set via DATABRICKS_HOST and DATABRICKS_TOKEN env vars in pipeline
+
+targets:
+  dev:
+    mode: development
+    default:
+      resources:
+        jobs:
+          devops-lab-demo-job:
+            schedule:
+              quartz_cron_expression: "0 0 12 * * ?"
+              timezone_id: "UTC"
+              pause_status: "UNPAUSED"
+  prod:
+    mode: production
+    default:
+      resources:
+        jobs:
+          devops-lab-demo-job:
+            schedule:
+              quartz_cron_expression: "0 0 12 * * ?"
+              timezone_id: "UTC"
+              pause_status: "PAUSED"
