@@ -1,0 +1,28 @@
+# Databricks Asset Bundle - Demo Job
+# Deploys notebook and job via DAB
+
+resources:
+  jobs:
+    devops-lab-demo-job:
+      name: devops-lab-demo-job
+      description: "Demo job deployed via Databricks Asset Bundle"
+      tags:
+        environment: "${bundle.target}"
+        managed_by: "dab"
+
+      tasks:
+        - task_key: demo_notebook
+          notebook_task:
+            notebook_path: resources/notebooks/demo_notebook
+            base_parameters:
+              input: "from-dab-job"
+          job_cluster_key: lab_cluster
+
+      job_clusters:
+        - job_cluster_key: lab_cluster
+          new_cluster:
+            spark_version: "14.3.x-scala2.12"
+            node_type_id: "Standard_DS3_v2"
+            num_workers: 1
+            spark_conf:
+              spark.databricks.delta.preview.enabled: "true"
