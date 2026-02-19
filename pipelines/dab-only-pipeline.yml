@@ -1,0 +1,87 @@
+# =============================================================================
+# Databricks Asset Bundle (DAB) Only - CI/CD Pipeline
+# =============================================================================
+# Use this pipeline when Databricks workspace already exists and you want to
+# deploy only DAB resources (notebooks, jobs) via Databricks Asset Bundle.
+# Terraform is not used - workspace, cluster, Unity Catalog are pre-created.
+#
+# Required Pipeline Variables:
+#   DATABRICKS_HOST  - Workspace URL (https://xxx.azuredatabricks.net)
+#   DATABRICKS_TOKEN - PAT (secret)
+# =============================================================================
+
+trigger:
+  branches:
+    include:
+      - main
+
+variables:
+  - name: DAB_TARGET
+    value: dev
+
+stages:
+  - stage: Validate
+    displayName: "DAB Validate"
+    jobs:
+      - job: dab_validate
+        displayName: "Validate Databricks Asset Bundle"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - checkout: self
+
+          - task: Bash@3
+            displayName: "Install Databricks CLI (DAB)"
+            inputs:
+              targetType: "inline"
+              script: |
+                set -e
+                curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+                databricks --version
+
+          - task: Bash@3
+            displayName: "DAB validate"
+            inputs:
+              targetType: "inline"
+              workingDirectory: bundle
+              script: |
+                set -e
+                databricks bundle validate -t $(DAB_TARGET)
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
+
+  - stage: Deploy
+    displayName: "DAB Deploy"
+    dependsOn: Validate
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: dab_deploy
+        displayName: "Deploy via DAB"
+        environment: "databricks-dev"
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - task: Bash@3
+                  displayName: "Install Databricks CLI (DAB)"
+                  inputs:
+                    targetType: "inline"
+                    script: |
+                      set -e
+                      curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+                      databricks --version
+
+                - task: Bash@3
+                  displayName: "DAB deploy"
+                  inputs:
+                    targetType: "inline"
+                    workingDirectory: bundle
+                    script: |
+                      set -e
+                      databricks bundle deploy -t $(DAB_TARGET)
+            env:
+              DATABRICKS_HOST: $(DATABRICKS_HOST)
+              DATABRICKS_TOKEN: $(DATABRICKS_TOKEN)
